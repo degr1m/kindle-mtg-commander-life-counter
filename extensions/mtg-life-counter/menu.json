@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "name": "MTG Commander Life Counter",
+      "priority": 1,
+      "action": "/bin/sh",
+      "params": "/mnt/us/extensions/mtg-life-counter/bin/launch.sh",
+      "exitmenu": true
+    }
+  ]
+}

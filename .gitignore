@@ -1,0 +1,9 @@
+# Private planning notes and local runtime artifacts
+.planning/
+extensions/*/data/
+extensions/*/app.log
+extensions/*/app.log.old
+.env
+.env.*
+.DS_Store
+design/rendered/

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>MTG Commander Life Counter — Kindle Preview</title>
+<style>
+  :root { --ink:#111; --paper:#f4f1e8; --muted:#cecac0; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; width:100%; min-height:100%; background:#292929; color:var(--ink); font-family:"Arial Narrow","Helvetica Neue",Arial,sans-serif; }
+  body { display:grid; place-items:center; padding:18px; }
+  button { font:inherit; color:inherit; }
+  .device {
+    position:relative;
+    width:min(94vw,calc(94vh * .75238));
+    aspect-ratio:1264/1680;
+    overflow:hidden;
+    background:var(--paper);
+    border:3px solid #000;
+    box-shadow:0 18px 60px rgba(0,0,0,.42);
+    user-select:none;
+    touch-action:manipulation;
+  }
+  .board { display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; width:100%; height:100%; }
+  .player { position:relative; overflow:hidden; border:2px solid #111; background:var(--paper); container-type:size; }
+  .player::before { content:""; position:absolute; inset:0; pointer-events:none; opacity:.14; }
+  .player[data-player="1"]::before { background:repeating-linear-gradient(135deg,#000 0 2px,transparent 2px 24px); }
+  .player[data-player="2"]::before { background:radial-gradient(circle at center,#000 0 1.5px,transparent 2px); background-size:22px 22px; }
+  .player[data-player="3"]::before { background:repeating-linear-gradient(0deg,#000 0 1px,transparent 1px 20px); }
+  .player[data-player="4"]::before { background:repeating-linear-gradient(45deg,#000 0 2px,transparent 2px 26px); }
+
+  .tap-zone { position:absolute; left:0; right:0; height:50%; border:0; background:transparent; cursor:pointer; z-index:2; }
+  .tap-zone:active { background:rgba(0,0,0,.16); }
+  .rotate-cw .tap-zone.minus { top:0; }
+  .rotate-cw .tap-zone.plus { bottom:0; }
+  .rotate-ccw .tap-zone.minus { bottom:0; }
+  .rotate-ccw .tap-zone.plus { top:0; }
+
+  .player-core { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; z-index:1; pointer-events:none; }
+  .p1 .player-core,.p4 .player-core { left:4%; right:-4%; transform:rotate(90deg); }
+  .p2 .player-core,.p3 .player-core { left:-4%; right:4%; transform:rotate(-90deg); }
+  .life { font-family:Impact,"Arial Black",sans-serif; font-size:62cqw; font-weight:900; line-height:.8; letter-spacing:-.06em; font-variant-numeric:tabular-nums; }
+  .player-name { position:absolute; top:50%; z-index:4; width:27cqh; text-align:center; font-size:5.1cqw; font-weight:950; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; pointer-events:none; }
+  .p1 .player-name,.p4 .player-name { right:-4%; transform:translateY(-50%) rotate(90deg); }
+  .p2 .player-name,.p3 .player-name { left:-4%; transform:translateY(-50%) rotate(-90deg); }
+
+  .monarch {
+    position:absolute; z-index:4; width:15cqw; height:15cqw; padding:0; border:0; background:transparent; cursor:pointer;
+  }
+  .monarch svg { width:100%; height:100%; overflow:visible; }
+  .monarch path { fill:var(--paper); stroke:#111; stroke-width:4; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+  .monarch.active path { fill:#111; }
+  .monarch:active { opacity:.45; }
+  .p1 .monarch { top:8%; right:7%; transform:rotate(90deg); }
+  .p2 .monarch { top:8%; left:7%; transform:rotate(-90deg); }
+  .p3 .monarch { bottom:8%; left:7%; transform:rotate(-90deg); }
+  .p4 .monarch { bottom:8%; right:7%; transform:rotate(90deg); }
+
+  .first-indicator {
+    position:absolute; z-index:4; display:none; align-items:center; gap:2.2cqw; padding:1.4cqw 1cqw; background:rgba(244,241,232,.94); font-weight:950; text-transform:uppercase; letter-spacing:.05em; pointer-events:none;
+  }
+  .first-indicator.visible { display:flex; }
+  .first-indicator .word { font-size:4.2cqw; }
+  .first-indicator .badge { display:grid; place-items:center; width:8cqw; height:8cqw; border-radius:50%; background:#111; color:#fff; font-size:5cqw; line-height:1; }
+  .p1 .first-indicator { left:7%; top:50%; transform:translateY(-50%) rotate(90deg); }
+  .p2 .first-indicator { right:7%; top:50%; transform:translateY(-50%) rotate(-90deg); }
+  .p3 .first-indicator { right:7%; top:50%; transform:translateY(-50%) rotate(-90deg); }
+  .p4 .first-indicator { left:7%; top:50%; transform:translateY(-50%) rotate(90deg); }
+
+  .center-bar {
+    position:absolute; left:0; right:0; top:50%; height:7.5%; transform:translateY(-50%); z-index:8;
+    display:grid; grid-template-columns:1fr 1.65fr 1fr; background:#151515; color:#fff; border-block:3px solid #000;
+  }
+  .center-bar button { min-width:0; border:0; border-right:2px solid #fff; background:#151515; color:#fff; font-size:clamp(10px,1.55vw,21px); font-weight:950; letter-spacing:.045em; text-transform:uppercase; white-space:nowrap; }
+  .center-bar button:last-child { border-right:0; }
+  .center-bar button:active { background:#fff; color:#000; }
+
+  .confirm { position:absolute; inset:0; z-index:20; display:none; place-items:center; background:rgba(0,0,0,.87); padding:9%; }
+  .confirm.open { display:grid; }
+  .dialog { width:100%; background:var(--paper); border:5px solid #fff; outline:4px solid #000; padding:8%; text-align:center; }
+  .dialog h2 { margin:0 0 .35em; font-size:clamp(28px,7vw,84px); line-height:.9; text-transform:uppercase; }
+  .dialog p { margin:0 0 1.6em; font-size:clamp(12px,2.3vw,28px); font-weight:700; }
+  .dialog-actions { display:grid; grid-template-columns:1fr 1fr; gap:4%; }
+  .dialog-actions button { min-height:clamp(54px,8vw,100px); border:3px solid #111; background:transparent; font-weight:950; text-transform:uppercase; letter-spacing:.08em; }
+  .dialog-actions .primary { background:#111; color:#fff; }
+  .preview-note { position:fixed; right:18px; bottom:14px; color:#ddd; font:12px/1.3 Arial,sans-serif; opacity:.7; }
+  @media (max-width:700px) { body{padding:0}.device{width:100vw;height:100vh;aspect-ratio:auto;border:0;box-shadow:none}.preview-note{display:none} }
+</style>
+</head>
+<body>
+<main class="device" aria-label="MTG Commander Life Counter preview">
+  <section class="board" id="board">
+    <article class="player p1 rotate-cw" data-player="1">
+      <button class="tap-zone minus" data-delta="-1" aria-label="Player 1 lose one life"></button>
+      <button class="tap-zone plus" data-delta="1" aria-label="Player 1 gain one life"></button>
+      <div class="player-core"><strong class="life">40</strong></div>
+      <span class="player-name">Player 1</span>
+      <button class="monarch" aria-label="Toggle Player 1 monarch">
+        <svg viewBox="0 0 72 58" aria-hidden="true"><path d="M8 49V19l17 14L36 7l11 26 17-14v30z"/></svg>
+      </button>
+      <div class="first-indicator"><span class="word">First</span><span class="badge">1</span></div>
+    </article>
+    <article class="player p2 rotate-ccw" data-player="2">
+      <button class="tap-zone minus" data-delta="-1" aria-label="Player 2 lose one life"></button>
+      <button class="tap-zone plus" data-delta="1" aria-label="Player 2 gain one life"></button>
+      <div class="player-core"><strong class="life">40</strong></div>
+      <span class="player-name">Player 2</span>
+      <button class="monarch" aria-label="Toggle Player 2 monarch">
+        <svg viewBox="0 0 72 58" aria-hidden="true"><path d="M8 49V19l17 14L36 7l11 26 17-14v30z"/></svg>
+      </button>
+      <div class="first-indicator"><span class="word">First</span><span class="badge">1</span></div>
+    </article>
+    <article class="player p4 rotate-cw" data-player="4">
+      <button class="tap-zone minus" data-delta="-1" aria-label="Player 4 lose one life"></button>
+      <button class="tap-zone plus" data-delta="1" aria-label="Player 4 gain one life"></button>
+      <div class="player-core"><strong class="life">40</strong></div>
+      <span class="player-name">Player 4</span>
+      <button class="monarch" aria-label="Toggle Player 4 monarch">
+        <svg viewBox="0 0 72 58" aria-hidden="true"><path d="M8 49V19l17 14L36 7l11 26 17-14v30z"/></svg>
+      </button>
+      <div class="first-indicator"><span class="word">First</span><span class="badge">1</span></div>
+    </article>
+    <article class="player p3 rotate-ccw" data-player="3">
+      <button class="tap-zone minus" data-delta="-1" aria-label="Player 3 lose one life"></button>
+      <button class="tap-zone plus" data-delta="1" aria-label="Player 3 gain one life"></button>
+      <div class="player-core"><strong class="life">40</strong></div>
+      <span class="player-name">Player 3</span>
+      <button class="monarch" aria-label="Toggle Player 3 monarch">
+        <svg viewBox="0 0 72 58" aria-hidden="true"><path d="M8 49V19l17 14L36 7l11 26 17-14v30z"/></svg>
+      </button>
+      <div class="first-indicator"><span class="word">First</span><span class="badge">1</span></div>
+    </article>
+  </section>
+
+  <nav class="center-bar" aria-label="Game controls">
+    <button id="firstButton">Pick First</button>
+    <button id="resetButton">New Game</button>
+    <button id="exitButton">Exit</button>
+  </nav>
+
+  <section class="confirm" id="confirm" aria-modal="true" role="dialog">
+    <div class="dialog">
+      <h2>Start new game?</h2>
+      <p>Reset every player to 40, clear monarch, and clear the first-player marker?</p>
+      <div class="dialog-actions"><button id="cancelReset">Cancel</button><button class="primary" id="confirmReset">Reset</button></div>
+    </div>
+  </section>
+</main>
+<div class="preview-note">Revised layout · interactive Kindle-ratio prototype</div>
+<script>
+(function(){
+  var players=document.querySelectorAll('.player');
+  var first=0;
+
+  function adjust(button){
+    var life=button.parentNode.querySelector('.life');
+    life.textContent=String(parseInt(life.textContent,10)+parseInt(button.getAttribute('data-delta'),10));
+  }
+
+  function setFirst(playerNumber){
+    first=playerNumber;
+    for(var i=0;i<players.length;i++){
+      var number=parseInt(players[i].getAttribute('data-player'),10);
+      players[i].querySelector('.first-indicator').className='first-indicator'+(number===first?' visible':'');
+    }
+  }
+
+  function clearMonarch(){
+    var crowns=document.querySelectorAll('.monarch');
+    for(var i=0;i<crowns.length;i++) crowns[i].className='monarch';
+  }
+
+  var zones=document.querySelectorAll('.tap-zone');
+  for(var i=0;i<zones.length;i++) zones[i].onclick=function(){adjust(this);};
+
+  var crowns=document.querySelectorAll('.monarch');
+  for(var j=0;j<crowns.length;j++) crowns[j].onclick=function(event){
+    event.stopPropagation();
+    var wasActive=this.className.indexOf('active')!==-1;
+    clearMonarch();
+    if(!wasActive) this.className='monarch active';
+  };
+
+  document.getElementById('firstButton').onclick=function(){
+    var next;
+    do{ next=Math.floor(Math.random()*4)+1; }while(next===first&&players.length>1);
+    setFirst(next);
+  };
+  document.getElementById('resetButton').onclick=function(){document.getElementById('confirm').className='confirm open';};
+  document.getElementById('cancelReset').onclick=function(){document.getElementById('confirm').className='confirm';};
+  document.getElementById('confirmReset').onclick=function(){
+    for(var i=0;i<players.length;i++) players[i].querySelector('.life').textContent='40';
+    clearMonarch();
+    setFirst(0);
+    document.getElementById('confirm').className='confirm';
+  };
+  document.getElementById('exitButton').onclick=function(){alert('On Kindle, this closes the full-screen app and returns to KUAL.');};
+}());
+</script>
+</body>
+</html>
