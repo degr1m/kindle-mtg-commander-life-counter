@@ -1,5 +1,8 @@
 # Private planning notes and local runtime artifacts
 .planning/
+docs/plan.md
+docs/superpowers-workflow.md
+docs/kindle-input-spike-test.md
 extensions/*/data/
 extensions/*/app.log
 extensions/*/app.log.old
@@ -7,3 +10,4 @@ extensions/*/app.log.old
 .env.*
 .DS_Store
 design/rendered/
+dist/

@@ -12,7 +12,13 @@ static bool valid_player(int player) {
 }
 
 void game_reset(GameState *game) {
-    for (int i = 0; i < GAME_PLAYER_COUNT; ++i) game->life[i] = GAME_STARTING_LIFE;
+    for (int player = 0; player < GAME_PLAYER_COUNT; ++player) {
+        game->life[player] = GAME_STARTING_LIFE;
+        game->poison[player] = 0;
+        for (int source = 0; source < GAME_PLAYER_COUNT; ++source) {
+            game->commander_damage[player][source] = 0;
+        }
+    }
     game->first_player = GAME_NO_PLAYER;
     game->monarch_player = GAME_NO_PLAYER;
 }
@@ -24,48 +30,94 @@ void game_adjust(GameState *game, int player, int delta) {
     game->life[player] += delta;
 }
 
-int game_long_press_extra_delta(int delta) {
-    return delta * (GAME_LONG_PRESS_LIFE_DELTA - 1);
+bool game_add_commander_damage(GameState *game, int recipient, int source) {
+    if (!valid_player(recipient) || !valid_player(source)) return false;
+    if (game->commander_damage[recipient][source] == INT_MAX ||
+        game->life[recipient] == INT_MIN) return false;
+    ++game->commander_damage[recipient][source];
+    --game->life[recipient];
+    return true;
+}
+
+bool game_clear_commander_damage(GameState *game, int recipient, int source) {
+    if (!valid_player(recipient) || !valid_player(source)) return false;
+    int damage = game->commander_damage[recipient][source];
+    if (damage <= 0 || game->life[recipient] > INT_MAX - damage) return false;
+    game->life[recipient] += damage;
+    game->commander_damage[recipient][source] = 0;
+    return true;
+}
+
+bool game_apply_tap(GameState *game, GameControl control) {
+    if (!valid_player(control.player)) return false;
+    if (control.type == GAME_CONTROL_LIFE) {
+        if (control.delta != -1 && control.delta != 1) return false;
+        int previous = game->life[control.player];
+        game_adjust(game, control.player, control.delta);
+        return game->life[control.player] != previous;
+    }
+    if (control.type == GAME_CONTROL_COMMANDER) {
+        return game_add_commander_damage(game, control.player, control.source);
+    }
+    if (control.type == GAME_CONTROL_POISON) {
+        if (game->poison[control.player] == INT_MAX) return false;
+        ++game->poison[control.player];
+        return true;
+    }
+    if (control.type == GAME_CONTROL_MONARCH) {
+        if (game->monarch_player == control.player) return false;
+        game->monarch_player = control.player;
+        return true;
+    }
+    return false;
+}
+
+bool game_apply_hold_from_snapshot(GameState *game, const GameState *before,
+                                   GameControl control) {
+    if (!game || !before || !valid_player(control.player)) return false;
+
+    if (control.type == GAME_CONTROL_LIFE) {
+        if (control.delta != -1 && control.delta != 1) return false;
+        long long target = (long long)before->life[control.player] +
+                           (long long)control.delta * GAME_LONG_PRESS_LIFE_DELTA;
+        if (target < INT_MIN || target > INT_MAX ||
+            game->life[control.player] == (int)target) return false;
+        game->life[control.player] = (int)target;
+        return true;
+    }
+    if (control.type == GAME_CONTROL_COMMANDER) {
+        if (!valid_player(control.source)) return false;
+        int damage = before->commander_damage[control.player][control.source];
+        long long target_life = (long long)before->life[control.player] + damage;
+        if (damage < 0 || target_life < INT_MIN || target_life > INT_MAX) return false;
+        bool changed = game->life[control.player] != (int)target_life ||
+                       game->commander_damage[control.player][control.source] != 0;
+        game->life[control.player] = (int)target_life;
+        game->commander_damage[control.player][control.source] = 0;
+        return changed;
+    }
+    if (control.type == GAME_CONTROL_POISON) {
+        if (game->poison[control.player] == 0) return false;
+        game->poison[control.player] = 0;
+        return true;
+    }
+    if (control.type == GAME_CONTROL_MONARCH) {
+        int target = before->monarch_player == control.player
+            ? GAME_NO_PLAYER : before->monarch_player;
+        if (game->monarch_player == target) return false;
+        game->monarch_player = target;
+        return true;
+    }
+    return false;
+}
+
+bool game_control_equal(GameControl left, GameControl right) {
+    return left.type == right.type && left.player == right.player &&
+           left.source == right.source && left.delta == right.delta;
 }
 
 void game_set_first(GameState *game, int player) {
     if (valid_player(player) || player == GAME_NO_PLAYER) game->first_player = player;
-}
-
-void game_toggle_monarch(GameState *game, int player) {
-    if (!valid_player(player)) return;
-    game->monarch_player = game->monarch_player == player ? GAME_NO_PLAYER : player;
-}
-
-bool game_map_touch(int x, int y, int width, int height, int bar_height,
-                    int *player, int *delta) {
-    if (width <= 0 || height <= 0 || bar_height < 0 || !player || !delta) return false;
-
-    const int mid_x = width / 2;
-    const int mid_y = height / 2;
-    const int bar_top = mid_y - bar_height / 2;
-    const int bar_bottom = mid_y + bar_height / 2;
-    if (y >= bar_top && y <= bar_bottom) return false;
-
-    const bool right = x >= mid_x;
-    const bool bottom = y > bar_bottom;
-    int panel_height;
-    int local_y;
-    if (bottom) {
-        panel_height = height - bar_bottom;
-        local_y = y - bar_bottom;
-        *player = right ? 2 : 3;
-    } else {
-        panel_height = bar_top;
-        local_y = y;
-        *player = right ? 1 : 0;
-    }
-
-    const bool lower_half = local_y >= panel_height / 2;
-    const bool clockwise = *player == 0 || *player == 3;
-    *delta = clockwise ? (lower_half ? 1 : -1)
-                       : (lower_half ? -1 : 1);
-    return true;
 }
 
 static bool parse_line(char *line, char *key, size_t key_size, int *value) {
@@ -93,6 +145,9 @@ bool game_load(GameState *game, const char *path) {
     GameState loaded;
     game_reset(&loaded);
     bool life_seen[GAME_PLAYER_COUNT] = {false};
+    bool commander_seen[GAME_PLAYER_COUNT][GAME_PLAYER_COUNT] = {{false}};
+    bool poison_seen[GAME_PLAYER_COUNT] = {false};
+    bool version_seen = false;
     bool first_seen = false;
     bool monarch_seen = false;
     bool valid = true;
@@ -102,6 +157,8 @@ bool game_load(GameState *game, const char *path) {
         int value;
         if (!parse_line(line, key, sizeof(key), &value)) {
             valid = false;
+        } else if (strcmp(key, "VERSION") == 0 && !version_seen && value == 2) {
+            version_seen = true;
         } else if (key[0] == 'P' && key[1] >= '1' && key[1] <= '4' &&
                    key[2] == '\0') {
             int index = key[1] - '1';
@@ -110,6 +167,26 @@ bool game_load(GameState *game, const char *path) {
             } else {
                 loaded.life[index] = value;
                 life_seen[index] = true;
+            }
+        } else if (key[0] == 'C' && key[1] == 'D' &&
+                   key[2] >= '1' && key[2] <= '4' &&
+                   key[3] >= '1' && key[3] <= '4' && key[4] == '\0') {
+            int recipient = key[2] - '1';
+            int source = key[3] - '1';
+            if (value < 0 || commander_seen[recipient][source]) {
+                valid = false;
+            } else {
+                loaded.commander_damage[recipient][source] = value;
+                commander_seen[recipient][source] = true;
+            }
+        } else if (strncmp(key, "POISON", 6) == 0 &&
+                   key[6] >= '1' && key[6] <= '4' && key[7] == '\0') {
+            int player = key[6] - '1';
+            if (value < 0 || poison_seen[player]) {
+                valid = false;
+            } else {
+                loaded.poison[player] = value;
+                poison_seen[player] = true;
             }
         } else if (strcmp(key, "FIRST") == 0 && !first_seen &&
                    value >= 0 && value <= GAME_PLAYER_COUNT) {
@@ -129,6 +206,22 @@ bool game_load(GameState *game, const char *path) {
     for (int i = 0; i < GAME_PLAYER_COUNT; ++i) {
         if (!life_seen[i]) valid = false;
     }
+    if (version_seen) {
+        if (!first_seen || !monarch_seen) valid = false;
+        for (int player = 0; player < GAME_PLAYER_COUNT; ++player) {
+            if (!poison_seen[player]) valid = false;
+            for (int source = 0; source < GAME_PLAYER_COUNT; ++source) {
+                if (!commander_seen[player][source]) valid = false;
+            }
+        }
+    } else {
+        for (int player = 0; player < GAME_PLAYER_COUNT; ++player) {
+            if (poison_seen[player]) valid = false;
+            for (int source = 0; source < GAME_PLAYER_COUNT; ++source) {
+                if (commander_seen[player][source]) valid = false;
+            }
+        }
+    }
     if (valid) *game = loaded;
     return valid;
 }
@@ -146,11 +239,24 @@ bool game_save(const GameState *game, const char *path) {
         return false;
     }
 
-    bool ok = fprintf(file,
-                      "P1=%d\nP2=%d\nP3=%d\nP4=%d\nFIRST=%d\nMONARCH=%d\n",
+    bool ok = fprintf(file, "VERSION=2\nP1=%d\nP2=%d\nP3=%d\nP4=%d\n",
                       game->life[0], game->life[1], game->life[2],
-                      game->life[3], game->first_player + 1,
-                      game->monarch_player + 1) > 0;
+                      game->life[3]) > 0;
+    for (int recipient = 0; ok && recipient < GAME_PLAYER_COUNT; ++recipient) {
+        for (int source = 0; ok && source < GAME_PLAYER_COUNT; ++source) {
+            ok = fprintf(file, "CD%d%d=%d\n", recipient + 1, source + 1,
+                         game->commander_damage[recipient][source]) > 0;
+        }
+    }
+    for (int player = 0; ok && player < GAME_PLAYER_COUNT; ++player) {
+        ok = fprintf(file, "POISON%d=%d\n", player + 1,
+                     game->poison[player]) > 0;
+    }
+    if (ok) {
+        ok = fprintf(file, "FIRST=%d\nMONARCH=%d\n",
+                     game->first_player + 1,
+                     game->monarch_player + 1) > 0;
+    }
     if (ok && fflush(file) != 0) ok = false;
     if (ok && fsync(fileno(file)) != 0) ok = false;
     if (fclose(file) != 0) ok = false;
